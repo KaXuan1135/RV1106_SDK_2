@@ -177,4 +177,19 @@ void letterbox(
     bool rgaAccel
 );
 
+float calculateOverlap(float xmin0, float ymin0, float xmax0, float ymax0, 
+                       float xmin1, float ymin1, float xmax1, float ymax1);
+
+void compute_dfl(float* tensor, int dfl_len, float* box);
+
+int nms(int validCount, 
+        std::vector<float> &outputLocations, 
+        std::vector<int> classIds, 
+        std::vector<int> &order,
+        int filterId, 
+        float threshold,
+        int filterBoxesSize);
+
+void quick_sort_indice_inverse(std::vector<float> &input, int left, int right, std::vector<int> &indices);
+
 #endif // MISC_H

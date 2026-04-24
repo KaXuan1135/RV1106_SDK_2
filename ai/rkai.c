@@ -3,6 +3,7 @@
 
 #define MAX_OSD_LEN 64
 #define PRINT_DET
+#define DRAW_BOX
 
 typedef struct {
     void* handle;
@@ -43,7 +44,7 @@ static avcodec_osd_rect_t orect;
 int yolo_process_rgb(void *buff, int w, int h)
 {
     YOLO_Box_t results[20];
-    int num = yolo_detect(yolo_ctx.handle, w, h, (unsigned char *)buff, results, 20);
+    int num = yolo26_detect(yolo_ctx.handle, w, h, (unsigned char *)buff, results, 20);
 
 #ifdef PRINT_DET
     printf("[YOLO] Detected %d objects\n", num);
@@ -56,6 +57,8 @@ int yolo_process_rgb(void *buff, int w, int h)
             results[i].class_id);
     }
 #endif
+
+#ifdef DRAW_BOX
 
     pthread_mutex_lock(&g_stResult_lock);
     
@@ -97,13 +100,15 @@ int yolo_process_rgb(void *buff, int w, int h)
     }
 
     pthread_mutex_unlock(&g_stResult_lock);
+#endif
 
     return 0;
 }
 
 void yolo_handle_init()
 {
-    yolo_ctx.handle = yolo_init("/userdata/model/yolo26n_u8_rv1106.rknn", 0.45f);
+    
+    yolo_ctx.handle = yolo26_init("/userdata/model/yolo26n_u8_rv1106.rknn", 0.45f);
 
     app_get_resolution(0, &main_stream_res_w, &main_stream_res_h, NULL);
 
@@ -113,5 +118,7 @@ void yolo_handle_init()
 
     orect.thick = 3;
     orect.color = 0xff;
+
+    // abort();
 }
 

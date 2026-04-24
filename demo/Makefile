@@ -84,7 +84,7 @@ $(OBJPATH)/%.o:./%.cpp
 
 SRCS = $(wildcard ./*.cpp)
 OBJS = $(SRCS:./%.cpp=./$(OBJPATH)/%.o)
-TARGETLIB :=  $(OBJPATH)/rv1106_ipc
+TARGETLIB :=  $(OBJPATH)/rv1106_ipc_custom
 
 all:$(TARGETLIB)
 $(TARGETLIB):$(OBJS)

@@ -46,38 +46,24 @@ extern "C" int comm_ai_process(int stream_index, void * mb, void *puser)
 {
 	static int count = 0;
 
-	if(stream_index == CAM0_STREAM_MAIN)
-	{
+	if (stream_index != CAM0_STREAM_MAIN) {
+		os_dbg("not process stream(%d)!!!",  stream_index);
+	} else {
 		RgaProc * hd;
-		static unsigned char * buff_local = NULL;
+		static unsigned char * buff_local = (unsigned char*)malloc(640*640*3);
+		memset(buff_local, 0, 640*640*3);
 		bool ret = false;
+
 #ifdef YUV_TO_RGB		
 		hd = rga_hd[app_get_camid(stream_index)];
-		if(hd == NULL)
-		{
-			int w, h;
-			app_get_resolution(stream_index, &w, &h, NULL);
-			rga_hd[app_get_camid(stream_index)] = new RgaProc(w, h, RK_FMT_YUV420SP);
-			hd = rga_hd[app_get_camid(stream_index)];
-		}
 
-		if(hd)
 		{
-			//ret = hd->rga_proc_covert_rgb((VIDEO_FRAME_INFO_S *)mb, &crop[stream_index], &buff, true);
-			//ret = hd->rga_proc_scale_rgb((VIDEO_FRAME_INFO_S *)mb, 640, 480,  &buff, true);
-			
-			{
-				CROP_RECT rect = {0, 140, 640, 360};
-				if(buff_local == NULL)
-				{
-					buff_local = (unsigned char *)malloc(640*640*3);
-					memset(buff_local, 0, 640*640*3);
-				}
-				ret = hd->rga_proc_scale_rgb_ext((VIDEO_FRAME_INFO_S *)mb, 640, 640, &rect, buff_local, true);
-			}
-			if(ret == false) os_dbg("rga convert fail!!!");
-			else os_dbg("convert ok...");
+			CROP_RECT rect = {0, 140, 640, 360};
+			ret = hd->rga_proc_scale_rgb_ext((VIDEO_FRAME_INFO_S *)mb, 640, 640, &rect, buff_local, true);
 		}
+		if (ret) os_dbg("convert ok...");
+		else os_dbg("rga convert fail!!!");
+
 #endif
 
 #ifdef RGB_SAVE_TO_FILE
@@ -119,11 +105,7 @@ extern "C" int comm_ai_process(int stream_index, void * mb, void *puser)
 		}
 #endif
 	}
-	else
-	{
-//		os_dbg("not process stream(%d)!!!",  stream_index);
-	}
-	
+
 	count ++;
     app_relase_mb(mb);
 		
@@ -145,7 +127,7 @@ extern "C" int comm_ai_init()
 #ifdef RK_IVA_ENABLE
 	yolo_handle_init();
 #endif	
-//	start_AlarmProcess();
+
 	os_dbg(" exit");
 	return OS_SUCCESS;
 }

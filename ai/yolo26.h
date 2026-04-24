@@ -25,6 +25,7 @@ public:
 private:
     int numClasses_ = 0;
     float confThreshold_ = 0.2;
+    rknn_tensor_mem* cached_rga_mem = nullptr;
     
     std::vector<rknn_tensor_mem*> input_mems;
     std::vector<rknn_tensor_mem*> output_mems;
@@ -47,9 +48,9 @@ typedef struct {
 } YOLO_Box_t;
 
 // C 接口函数声明
-void* yolo_init(const char* model_path, float conf_threshold);
-int yolo_detect(void* handle, int width, int height, unsigned char* data, YOLO_Box_t* out_boxes, int max_boxes);
-void yolo_deinit(void* handle);
+void* yolo26_init(const char* model_path, float conf_threshold);
+int yolo26_detect(void* handle, int width, int height, unsigned char* data, YOLO_Box_t* out_boxes, int max_boxes);
+void yolo26_deinit(void* handle);
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,11 @@
 /env
 /lib
 /include
-/build/rv1106
-/demo/obj_rv1106
-/app/obj_rv1106
+
+/build/yolo_test
+/build/rv1106_ipc_customs
+
 /ai/obj_rv1106
+/app/obj_rv1106
+/demo/obj_rv1106
+/yolo/obj_rv1106

@@ -3,6 +3,7 @@
 #include <cstring>
 #include <fstream>
 #include <cassert>
+#include <chrono>
 
 #include "yolo26.h"
 
@@ -27,50 +28,80 @@ int RKNNYOLO26Detection::loadModel(const char *modelPath) {
         output_mems.push_back(mem);
     }
 
+    rknn_tensor_attr& attr = modelMetadata.input_attrs[0];
+    assert(attr.dims[2] == attr.w_stride);
+
     return ret;
 }
 
 int RKNNYOLO26Detection::process(const image_t& image, std::vector<RKNNResult>& results) 
 {
+
+    auto t_start = std::chrono::high_resolution_clock::now();
+
     int ret = -1;
     if (image.width == 0 || image.height == 0) {
         std::cerr << "Yolo26Detection::process::Image area is 0" << std::endl;
         return ret;
     }
 
-    image_t dup_image;
-    int aligned_width = (image.width + 15) & ~15; // Multiple of 16
-    
-    // Why not intialize it one time only? TODO after integrate into RV1106_IPC, that input size is fixed
-    rknn_tensor_mem* rga_mem = rknn_create_mem(modelMetadata.rknn_ctx, aligned_width * image.height * 3);
-
-    if (rga_mem == nullptr) {
-        std::cerr << "rknn_create_mem failed!" << std::endl;
-        return -1;
-    } else {
-        for(int i=0; i<image.height; i++) {
-            memcpy((uint8_t*)rga_mem->virt_addr + (i * aligned_width * 3), 
-                image.data + (i * image.width * 3), image.width * 3);
-        }
-        dup_image.data = (unsigned char*)rga_mem->virt_addr;
-    }
-    dup_image.width = aligned_width;
-    dup_image.height = image.height;
-
     image_t finalImage;
     finalImage.width = modelMetadata.model_width;
     finalImage.height = modelMetadata.model_height;
     finalImage.data = (unsigned char*)input_mems[0]->virt_addr;
 
-    preprocess(dup_image, finalImage);
-    rknn_destroy_mem(modelMetadata.rknn_ctx, rga_mem);
+    auto t_pre_start = std::chrono::high_resolution_clock::now();
 
-    rknn_tensor_attr& attr = modelMetadata.input_attrs[0];
-    assert(attr.dims[2] == attr.w_stride);
+    if (image.width != finalImage.width || image.height != finalImage.height) {
+        int aligned_width = (image.width + 15) & ~15; // Multiple of 16
+        if (cached_rga_mem == nullptr || cached_rga_mem->size != aligned_width * image.height * 3) {
+            rknn_destroy_mem(modelMetadata.rknn_ctx, cached_rga_mem);
+            cached_rga_mem = rknn_create_mem(modelMetadata.rknn_ctx, aligned_width * image.height * 3);
+            if (cached_rga_mem == nullptr) {
+                std::cerr << "rknn_create_mem failed!" << std::endl;
+                return -1;
+            }
+        }
+
+        image_t dup_image;
+        for(int i = 0; i < image.height; i++) {
+            memcpy((uint8_t*)cached_rga_mem->virt_addr + (i * aligned_width * 3), 
+                image.data + (i * image.width * 3), image.width * 3);
+        }
+        dup_image.data = (unsigned char*)cached_rga_mem->virt_addr;
+        
+        dup_image.width = aligned_width;
+        dup_image.height = image.height;
+    
+        preprocess(dup_image, finalImage);
+    } else {
+        preprocess(image, finalImage);
+    }
+    
+    auto t_pre_end = std::chrono::high_resolution_clock::now();
+
+    auto t_run_start = std::chrono::high_resolution_clock::now();
 
     ret = rknn_run(modelMetadata.rknn_ctx, nullptr);
+
+    auto t_run_end = std::chrono::high_resolution_clock::now();
+
+    auto t_post_start = std::chrono::high_resolution_clock::now();
+
     if (ret < 0) std::cerr << "Yolo26Detection::process::rknn_run fail::" << get_error_message(ret) << std::endl;    
     else postprocess(results);
+
+    auto t_post_end = std::chrono::high_resolution_clock::now();
+
+    auto t_end = std::chrono::high_resolution_clock::now();
+
+    double pre_ms = std::chrono::duration<double, std::milli>(t_pre_end - t_pre_start).count();
+    double run_ms = std::chrono::duration<double, std::milli>(t_run_end - t_run_start).count();
+    double post_ms = std::chrono::duration<double, std::milli>(t_post_end - t_post_start).count();
+    double total_ms = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+
+    printf(">>> Pre: %.2fms | Inference: %.2fms | Post: %.2fms | Total: %.2fms\n",
+           pre_ms, run_ms, post_ms, total_ms);
 
     return ret;
 }
@@ -98,6 +129,10 @@ void RKNNYOLO26Detection::postprocess(std::vector<RKNNResult>& results)
         int8_t* box_preds = reinterpret_cast<int8_t*>(output_mems[box_idx]->virt_addr);
         int8_t* cls_preds = reinterpret_cast<int8_t*>(output_mems[cls_idx]->virt_addr);
         int8_t* sum_preds = reinterpret_cast<int8_t*>(output_mems[sum_idx]->virt_addr);
+
+        // uint8_t* box_preds = reinterpret_cast<uint8_t*>(output_mems[box_idx]->virt_addr);
+        // uint8_t* cls_preds = reinterpret_cast<uint8_t*>(output_mems[cls_idx]->virt_addr);
+        // uint8_t* sum_preds = reinterpret_cast<uint8_t*>(output_mems[sum_idx]->virt_addr);
 
         int box_h = modelMetadata.output_attrs[box_idx].dims[1];
         int box_w = modelMetadata.output_attrs[box_idx].dims[2];
@@ -148,28 +183,23 @@ void RKNNYOLO26Detection::postprocess(std::vector<RKNNResult>& results)
                     x2 = (box[2] + j + 0.5f) * stride_x - letterboxInfo.x_pad;
                     y2 = (box[3] + i + 0.5f) * stride_y - letterboxInfo.y_pad;
 
-                    // std::cout << x1 << " " << y1 << " " << x2 << " " << y2 << std::endl;
-                    // std::cout << (int)(clamp(x1, 0, modelMetadata.model_width) / letterboxInfo.scale) << " " << (int)(clamp(y1, 0, modelMetadata.model_height) / letterboxInfo.scale) << " " << (int)(clamp(x2, 0, modelMetadata.model_width) / letterboxInfo.scale) << " " << (int)(clamp(y2, 0, modelMetadata.model_height) / letterboxInfo.scale) << std::endl;
-
                     results.push_back(RKNNResult(
-                        max_class_id,
-                        max_score,
+                        max_class_id, max_score,
                         (int)(clamp(x1, 0, modelMetadata.model_width) / letterboxInfo.scale),
                         (int)(clamp(y1, 0, modelMetadata.model_height) / letterboxInfo.scale),
                         (int)(clamp(x2, 0, modelMetadata.model_width) / letterboxInfo.scale),
                         (int)(clamp(y2, 0, modelMetadata.model_height) / letterboxInfo.scale)
                     ));
 
-                    
-
                 }
             }
         }
     }
 }
+
 extern "C" {
 
-void* yolo_init(const char* model_path, float conf_threshold) {
+void* yolo26_init(const char* model_path, float conf_threshold) {
     RKNNYOLO26Detection* detector = new RKNNYOLO26Detection(conf_threshold);
     int ret = detector->loadModel(model_path);
     if (ret != 0) {
@@ -179,7 +209,7 @@ void* yolo_init(const char* model_path, float conf_threshold) {
     return (void*)detector;
 }
 
-int yolo_detect(void* handle, int width, int height, unsigned char* data, YOLO_Box_t* out_boxes, int max_boxes) {
+int yolo26_detect(void* handle, int width, int height, unsigned char* data, YOLO_Box_t* out_boxes, int max_boxes) {
     if (!handle) return -1;
 
     RKNNYOLO26Detection* detector = (RKNNYOLO26Detection*)handle;
@@ -203,7 +233,7 @@ int yolo_detect(void* handle, int width, int height, unsigned char* data, YOLO_B
     return count;
 }
 
-void yolo_deinit(void* handle) {
+void yolo26_deinit(void* handle) {
     if (handle) {
         delete (RKNNYOLO26Detection*)handle;
     }
